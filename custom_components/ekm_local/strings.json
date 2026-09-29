@@ -1,0 +1,131 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EKM Push3 gateway",
+        "description": "Enter the gateway's address and its local API key (the `key` parameter of a readMeter URL).",
+        "data": {
+          "host": "Host",
+          "api_key": "API key"
+        },
+        "data_description": {
+          "host": "The integration polls http://<host>/readMeter."
+        }
+      },
+      "meter": {
+        "title": "Meter {address}",
+        "description": "Model {model}, currently {power} W and {energy} kWh.",
+        "data": {
+          "name": "Name",
+          "legacy_prefix": "Existing entity ID prefix to take over (optional)"
+        },
+        "data_description": {
+          "name": "Device name; entity names are added to it.",
+          "legacy_prefix": "If this meter is already set up with REST sensors, enter their common prefix (for example sensor.house_power). The next step matches existing entities by suffix (_total_watts, _total_energy, _l1_amps, ...) so they keep their entity IDs, history and Energy dashboard references."
+        }
+      },
+      "adopt": {
+        "title": "Take over entities for {name}",
+        "description": "Each entity ID listed here moves to meter {address} and keeps its history, statistics, settings and Energy dashboard references. Clear a field to create a new entity instead.\n\nSetup waits and retries until the REST sensors (or other sources) providing these IDs are removed.",
+        "data": {
+          "power": "Power",
+          "reactive_power": "Reactive power",
+          "energy": "Energy",
+          "current_l1": "Current L1",
+          "current_l2": "Current L2",
+          "current_l3": "Current L3",
+          "voltage_l1": "Voltage L1",
+          "voltage_l2": "Voltage L2",
+          "frequency": "Frequency"
+        }
+      },
+      "reconfigure": {
+        "title": "Change gateway address or key",
+        "data": {
+          "host": "Host",
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Leave empty to keep the current key."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the gateway.",
+      "invalid_key": "The gateway rejected the request. Check the API key.",
+      "invalid_response": "The host did not return EKM meter readings.",
+      "invalid_entity_id": "Enter a sensor entity ID, such as sensor.house_power_total_watts.",
+      "duplicate_entity_id": "The same entity ID is used twice.",
+      "wrong_gateway": "That gateway doesn't serve any of this entry's meters."
+    },
+    "abort": {
+      "already_configured": "This gateway is already configured.",
+      "reconfigure_successful": "The gateway settings were updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling",
+        "data": {
+          "scan_interval": "Polling interval"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "power": {
+        "name": "Power"
+      },
+      "power_line": {
+        "name": "Power L{line}"
+      },
+      "reactive_power": {
+        "name": "Reactive power"
+      },
+      "reactive_power_line": {
+        "name": "Reactive power L{line}"
+      },
+      "current_line": {
+        "name": "Current L{line}"
+      },
+      "voltage_line": {
+        "name": "Voltage L{line}"
+      },
+      "power_factor_line": {
+        "name": "Power factor L{line}"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "energy": {
+        "name": "Energy"
+      },
+      "energy_line": {
+        "name": "Energy L{line}"
+      },
+      "energy_tariff": {
+        "name": "Energy tariff {tariff}"
+      },
+      "reverse_energy": {
+        "name": "Reverse energy"
+      },
+      "reactive_energy": {
+        "name": "Reactive energy"
+      },
+      "max_demand": {
+        "name": "Maximum demand"
+      },
+      "pulse_count": {
+        "name": "Pulse count {input}"
+      },
+      "reliability": {
+        "name": "Read reliability"
+      },
+      "last_reading": {
+        "name": "Last reading"
+      }
+    }
+  }
+}
