@@ -127,3 +127,12 @@ async def test_reconfigure_wrong_gateway(hass: HomeAssistant, mock_readings):
     result = await entry.start_reconfigure_flow(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "10.0.0.7"})
     assert result["errors"] == {"base": "wrong_gateway"}
+
+
+async def test_options(hass: HomeAssistant, mock_readings):
+    entry = MockConfigEntry(domain=DOMAIN, data={"host": "10.0.0.7", "api_key": "k", "meters": {}})
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(result["flow_id"], {"scan_interval": 15, "stale_after": 45})
+    assert entry.options == {"scan_interval": 15, "stale_after": 45}

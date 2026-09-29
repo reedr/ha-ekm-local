@@ -36,10 +36,14 @@ from .const import (
     CONF_LEGACY_PREFIX,
     CONF_METERS,
     CONF_SCAN_INTERVAL,
+    CONF_STALE_AFTER,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_STALE_AFTER,
     DOMAIN,
     MAX_SCAN_INTERVAL,
+    MAX_STALE_AFTER,
     MIN_SCAN_INTERVAL,
+    MIN_STALE_AFTER,
 )
 from .coordinator import EkmConfigEntry
 from .sensor import SENSORS
@@ -242,35 +246,36 @@ class EkmLocalConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class EkmOptionsFlow(OptionsFlowWithReload):
-    """Polling interval."""
+    """Polling interval and stale-reading threshold."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(
-                data={CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])}
+                data={
+                    CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
+                    CONF_STALE_AFTER: int(user_input[CONF_STALE_AFTER]),
+                }
             )
+        seconds = lambda lo, hi: NumberSelector(  # noqa: E731
+            NumberSelectorConfig(
+                min=lo, max=hi, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX
+            )
+        )
+        options = self.config_entry.options
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
                 vol.Schema(
                     {
-                        vol.Required(CONF_SCAN_INTERVAL): NumberSelector(
-                            NumberSelectorConfig(
-                                min=MIN_SCAN_INTERVAL,
-                                max=MAX_SCAN_INTERVAL,
-                                step=1,
-                                unit_of_measurement="s",
-                                mode=NumberSelectorMode.BOX,
-                            )
-                        )
+                        vol.Required(CONF_SCAN_INTERVAL): seconds(MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL),
+                        vol.Required(CONF_STALE_AFTER): seconds(MIN_STALE_AFTER, MAX_STALE_AFTER),
                     }
                 ),
                 {
-                    CONF_SCAN_INTERVAL: self.config_entry.options.get(
-                        CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-                    )
+                    CONF_SCAN_INTERVAL: options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                    CONF_STALE_AFTER: options.get(CONF_STALE_AFTER, DEFAULT_STALE_AFTER),
                 },
             ),
         )

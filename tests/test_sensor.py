@@ -93,7 +93,7 @@ async def test_failure_is_immediately_unavailable(hass: HomeAssistant, mock_read
 
 
 async def test_stale_meter_goes_unavailable(hass: HomeAssistant, mock_readings, payload):
-    payload[TRACE][0]["Time_Stamp_UTC_ms"] -= 10 * 60 * 1000
+    payload[TRACE][0]["Time_Stamp_UTC_ms"] -= 2 * 60 * 1000
     mock_readings.return_value = parse_readings(payload)
     await _setup(hass)
     assert hass.states.get("sensor.heat_trace_meter_power").state == STATE_UNAVAILABLE

@@ -5,10 +5,9 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .api import MeterReading
-from .const import CONF_METERS, DOMAIN, MANUFACTURER, STALE_READING
+from .const import CONF_METERS, DOMAIN, MANUFACTURER
 from .coordinator import EkmCoordinator
 
 
@@ -50,9 +49,4 @@ class EkmEntity(CoordinatorEntity[EkmCoordinator]):
 
     @property
     def available(self) -> bool:
-        reading = self.reading
-        if not super().available or reading is None:
-            return False
-        # note: the gateway serves the last reading of a meter it can no longer reach
-        stamp = reading.timestamp
-        return stamp is None or dt_util.utcnow() - stamp < STALE_READING
+        return self.coordinator.meter_fresh(self._address)

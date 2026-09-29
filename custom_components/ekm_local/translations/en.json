@@ -68,7 +68,11 @@
       "init": {
         "title": "Polling",
         "data": {
-          "scan_interval": "Polling interval"
+          "scan_interval": "Polling interval",
+          "stale_after": "Stale reading threshold"
+        },
+        "data_description": {
+          "stale_after": "A meter whose latest reading at the gateway is older than this counts as not communicating (for example, it lost power) and its entities go unavailable. Keep it at least a few polling intervals long."
         }
       }
     }
@@ -125,6 +129,14 @@
       },
       "last_reading": {
         "name": "Last reading"
+      }
+    },
+    "binary_sensor": {
+      "communicating": {
+        "name": "Communicating"
+      },
+      "gateway_connected": {
+        "name": "Connected"
       }
     }
   }

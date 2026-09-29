@@ -21,10 +21,21 @@ meters added to the gateway later appear automatically.
 Entities exist only for fields the meter reports, so v3 meters get no reactive power
 or frequency.
 
-The gateway keeps serving a meter's last reading after it stops answering. When a
-reading is more than 5 minutes old, that meter's entities go unavailable. A failed
-poll also makes them unavailable straight away, with no grace period, so automations
-that watch for utility outages never act on stale data.
+The gateway keeps serving a meter's last reading after it stops answering (for example,
+a meter powered from the utility side loses power in an outage). When a reading is older
+than the **stale reading threshold** (default 90 s), that meter's entities go unavailable.
+A failed poll also makes them unavailable straight away, with no grace period, so
+automations that watch for utility outages never act on stale data.
+
+Diagnostic connectivity sensors make those two cases distinguishable:
+
+| Entity | On | Off | Unavailable |
+|---|---|---|---|
+| `<meter> Communicating` (per meter) | gateway has a fresh reading | gateway is up but the meter is silent or missing | gateway unreachable |
+| `EKM Push3 gateway Connected` | last poll succeeded | last poll failed | never |
+
+"Gateway connected and utility meter not communicating" is a useful outage signal when
+the meter itself is powered by the utility.
 
 ## Install
 
@@ -50,4 +61,6 @@ IDs so all three continue unbroken:
 
 ## Options
 
-**Polling interval** (default 60 s, minimum 5 s).
+**Polling interval** (default 60 s, minimum 5 s) and **stale reading threshold**
+(default 90 s). Outage detection takes up to threshold + one polling interval, so lower
+the polling interval (e.g. 15 s) if you rely on it.
