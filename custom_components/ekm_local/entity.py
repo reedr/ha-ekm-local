@@ -41,7 +41,7 @@ class EkmEntity(CoordinatorEntity[EkmCoordinator]):
             model=f"Omnimeter (model {reading.model})" if reading.model else "Omnimeter",
             sw_version=reading.firmware,
             serial_number=address,
-            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+            via_device_id=coordinator.gateway_device_id,
         )
 
     @property

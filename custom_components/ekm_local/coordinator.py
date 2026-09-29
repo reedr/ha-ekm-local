@@ -39,6 +39,7 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             ),
         )
         self.client = client
+        self.gateway_device_id: str | None = None
 
     async def _async_update_data(self) -> dict[str, MeterReading]:
         try:

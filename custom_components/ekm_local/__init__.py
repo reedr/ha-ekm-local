@@ -27,7 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EkmConfigEntry) -> bool:
             "or other integration that still provides them"
         )
 
-    dr.async_get(hass).async_get_or_create(
+    gateway = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name="EKM Push3 gateway",
@@ -35,6 +35,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EkmConfigEntry) -> bool:
         model="Push3",
         configuration_url=f"http://{entry.data[CONF_HOST]}",
     )
+    coordinator.gateway_device_id = gateway.id
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
