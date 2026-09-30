@@ -9,7 +9,7 @@
           "api_key": "API key"
         },
         "data_description": {
-          "host": "The integration polls http://<host>/readMeter."
+          "host": "The integration polls the gateway's readMeter API over HTTP."
         }
       },
       "meter": {
