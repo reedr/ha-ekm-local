@@ -15,6 +15,18 @@ CONF_METERS = "meters"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_STALE_AFTER = "stale_after"
 
+# CT correction (v0.3.0): one meter over-counts another meter's load (e.g. a
+# downstream feeder that also passes through the main meter's CT). The target's
+# total power and energy have the source meter's subtracted. Energy stays
+# continuous: only source usage since the correction began (CONF_CORRECT_BASE,
+# the source's kWh then) is subtracted, and usage from earlier correction
+# periods is kept in CONF_CORRECT_FROZEN {target address: kWh} for good.
+CONF_CORRECT_METER = "correct_meter"
+CONF_CORRECT_BY = "correct_by"
+CONF_CORRECT_BASE = "correct_base"
+CONF_CORRECT_FROZEN = "correct_frozen"
+NO_CORRECTION = "none"
+
 DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 600

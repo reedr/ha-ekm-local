@@ -28,7 +28,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import MeterReading
 from .coordinator import EkmConfigEntry, EkmCoordinator
-from .entity import EkmEntity
+from .entity import EkmEntity, meter_name
 
 PARALLEL_UPDATES = 0
 
@@ -213,4 +213,39 @@ class EkmSensor(EkmEntity, SensorEntity):
     @property
     def native_value(self) -> float | datetime | None:
         reading = self.reading
-        return None if reading is None else self.entity_description.value_fn(reading)
+        if reading is None:
+            return None
+        value = self.entity_description.value_fn(reading)
+        key = self.entity_description.key
+        if key == "power":
+            return self.coordinator.corrected_power(self._address, value)
+        if key == "energy":
+            return self.coordinator.corrected_energy(self._address, value)
+        return value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Says when total power / energy are corrected, and by which meter."""
+        coordinator = self.coordinator
+        key = self.entity_description.key
+        if key not in ("power", "energy"):
+            return None
+        if key == "power" and self._address == coordinator.correct_meter:
+            return {"corrected_by": meter_name(coordinator, coordinator.correct_by)}
+        if key == "energy" and (
+            self._address == coordinator.correct_meter or self._address in coordinator.correct_frozen
+        ):
+            attrs = {"correction_kwh": round(self._correction_kwh())}
+            if self._address == coordinator.correct_meter:
+                attrs["corrected_by"] = meter_name(coordinator, coordinator.correct_by)
+            return attrs
+        return None
+
+    def _correction_kwh(self) -> float:
+        coordinator = self.coordinator
+        total = coordinator.correct_frozen.get(self._address, 0.0)
+        if self._address == coordinator.correct_meter and coordinator.correct_base is not None:
+            source = coordinator.source_kwh()
+            if source is not None:
+                total += max(0.0, source - coordinator.correct_base)
+        return total

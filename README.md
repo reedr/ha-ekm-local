@@ -64,3 +64,13 @@ IDs so all three continue unbroken:
 **Polling interval** (default 60 s, minimum 5 s) and **stale reading threshold**
 (default 90 s). Outage detection takes up to threshold + one polling interval, so lower
 the polling interval (e.g. 15 s) if you rely on it.
+
+**CT correction** (v0.3.0): when one meter's CTs also see another meter's load (for
+example, a downstream feeder that passes through a main meter's CT), set **Correct meter**
+to the over-counting meter and **Subtract meter** to the one being double-counted. The
+corrected meter's total **Power** is its reading less the other meter's power, and its
+total **Energy** is less the other meter's kWh used since the correction was turned on.
+Energy stays continuous (no jump in the Energy dashboard) when you turn the correction on
+or off; kWh subtracted while it was on stay subtracted afterwards. Per-line power, current
+and the other values are not corrected. The energy sensor shows `correction_kwh` and
+`corrected_by` attributes while a correction applies.

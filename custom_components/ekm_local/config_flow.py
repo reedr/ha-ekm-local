@@ -18,6 +18,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -33,6 +37,10 @@ from .api import (
 from .const import (
     ADOPTABLE_SUFFIXES,
     CONF_ADOPT,
+    CONF_CORRECT_BASE,
+    CONF_CORRECT_BY,
+    CONF_CORRECT_FROZEN,
+    CONF_CORRECT_METER,
     CONF_LEGACY_PREFIX,
     CONF_METERS,
     CONF_SCAN_INTERVAL,
@@ -44,6 +52,7 @@ from .const import (
     MAX_STALE_AFTER,
     MIN_SCAN_INTERVAL,
     MIN_STALE_AFTER,
+    NO_CORRECTION,
 )
 from .coordinator import EkmConfigEntry
 from .sensor import SENSORS
@@ -246,24 +255,68 @@ class EkmLocalConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class EkmOptionsFlow(OptionsFlowWithReload):
-    """Polling interval and stale-reading threshold."""
+    """Polling interval, stale-reading threshold and CT correction."""
+
+    def _source_kwh(self, address: str | None) -> float | None:
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        reading = (coordinator.data or {}).get(address) if coordinator and address else None
+        return reading.number("kWh_Tot") if reading else None
+
+    def _correction_options(self, user_input: dict[str, Any]) -> dict[str, Any] | str:
+        """New correction options; keeps energy continuous across changes."""
+        old = self.config_entry.options
+        target = user_input.get(CONF_CORRECT_METER) or NO_CORRECTION
+        source = user_input.get(CONF_CORRECT_BY) or NO_CORRECTION
+        active = target != NO_CORRECTION
+        if active and (source == NO_CORRECTION or source == target):
+            return "correct_by_invalid"
+        frozen = dict(old.get(CONF_CORRECT_FROZEN) or {})
+        old_target, old_source = old.get(CONF_CORRECT_METER), old.get(CONF_CORRECT_BY)
+        old_base = old.get(CONF_CORRECT_BASE)
+        unchanged = active and (target, source) == (old_target, old_source) and old_base is not None
+        if old_target and old_base is not None and not unchanged:
+            now = self._source_kwh(old_source)
+            if now is None:
+                return "meter_not_reading"
+            frozen[old_target] = round(frozen.get(old_target, 0.0) + max(0.0, now - old_base), 3)
+        result: dict[str, Any] = {CONF_CORRECT_FROZEN: frozen} if frozen else {}
+        if active:
+            base = old_base if unchanged else self._source_kwh(source)
+            if base is None:
+                return "meter_not_reading"
+            result |= {CONF_CORRECT_METER: target, CONF_CORRECT_BY: source, CONF_CORRECT_BASE: base}
+        return result
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                data={
-                    CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
-                    CONF_STALE_AFTER: int(user_input[CONF_STALE_AFTER]),
-                }
-            )
+            correction = self._correction_options(user_input)
+            if isinstance(correction, str):
+                errors["base"] = correction
+            else:
+                return self.async_create_entry(
+                    data={
+                        CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
+                        CONF_STALE_AFTER: int(user_input[CONF_STALE_AFTER]),
+                        **correction,
+                    }
+                )
         seconds = lambda lo, hi: NumberSelector(  # noqa: E731
             NumberSelectorConfig(
                 min=lo, max=hi, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX
             )
         )
         options = self.config_entry.options
+        meters = self.config_entry.data.get(CONF_METERS) or {}
+        choices = [SelectOptionDict(value=NO_CORRECTION, label="None")] + [
+            SelectOptionDict(value=address, label=info.get("name") or address)
+            for address, info in meters.items()
+        ]
+        meter = SelectSelector(
+            SelectSelectorConfig(options=choices, mode=SelectSelectorMode.DROPDOWN)
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
@@ -271,11 +324,17 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                     {
                         vol.Required(CONF_SCAN_INTERVAL): seconds(MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL),
                         vol.Required(CONF_STALE_AFTER): seconds(MIN_STALE_AFTER, MAX_STALE_AFTER),
+                        vol.Optional(CONF_CORRECT_METER): meter,
+                        vol.Optional(CONF_CORRECT_BY): meter,
                     }
                 ),
-                {
+                user_input
+                or {
                     CONF_SCAN_INTERVAL: options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                     CONF_STALE_AFTER: options.get(CONF_STALE_AFTER, DEFAULT_STALE_AFTER),
+                    CONF_CORRECT_METER: options.get(CONF_CORRECT_METER) or NO_CORRECTION,
+                    CONF_CORRECT_BY: options.get(CONF_CORRECT_BY) or NO_CORRECTION,
                 },
             ),
+            errors=errors,
         )

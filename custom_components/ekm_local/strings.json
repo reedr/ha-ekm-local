@@ -66,15 +66,23 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling",
+        "title": "Options",
         "data": {
           "scan_interval": "Polling interval",
-          "stale_after": "Stale reading threshold"
+          "stale_after": "Stale reading threshold",
+          "correct_meter": "Correct meter",
+          "correct_by": "Subtract meter"
         },
         "data_description": {
-          "stale_after": "A meter whose latest reading at the gateway is older than this counts as not communicating (for example, it lost power) and its entities go unavailable. Keep it at least a few polling intervals long."
+          "stale_after": "A meter whose latest reading at the gateway is older than this counts as not communicating (for example, it lost power) and its entities go unavailable. Keep it at least a few polling intervals long.",
+          "correct_meter": "Use when this meter's CTs also see another meter's load (for example, a downstream feeder passing through a main CT). Its total power and energy have the other meter's subtracted. Choose None to stop; energy stays continuous either way.",
+          "correct_by": "The meter whose load is being double-counted."
         }
       }
+    },
+    "error": {
+      "correct_by_invalid": "Choose a different meter to subtract.",
+      "meter_not_reading": "That meter has no reading yet; try again in a moment."
     }
   },
   "entity": {
