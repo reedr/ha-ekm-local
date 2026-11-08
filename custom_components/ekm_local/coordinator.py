@@ -16,6 +16,9 @@ from .const import (
     CONF_CORRECT_BY,
     CONF_CORRECT_FROZEN,
     CONF_CORRECT_METER,
+    CONF_SCALE,
+    CONF_SCALE_BASE,
+    CONF_SCALE_METER,
     CONF_SCAN_INTERVAL,
     CONF_STALE_AFTER,
     DEFAULT_SCAN_INTERVAL,
@@ -26,6 +29,29 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 type EkmConfigEntry = ConfigEntry[EkmCoordinator]
+
+
+def scaled_kwh(
+    reading: MeterReading, factors: dict[str, float], base: dict
+) -> float | None:
+    """Total kWh rebuilt from the line registers: base + sum(factor x line kWh since)."""
+    total = float(base["kwh"])
+    for line, start in base["lines"].items():
+        now = reading.number(f"kWh_Ln_{line}")
+        if now is None:
+            return None
+        total += factors.get(str(line), 1.0) * (now - start)
+    return total
+
+
+def line_kwh(reading: MeterReading) -> dict[str, float] | None:
+    """Each line's kWh register, keyed "1".."3" (lines the meter doesn't report are skipped)."""
+    lines = {}
+    for line in (1, 2, 3):
+        value = reading.number(f"kWh_Ln_{line}")
+        if value is not None:
+            lines[str(line)] = value
+    return lines or None
 
 
 class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
@@ -61,6 +87,14 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             self.correct_meter = self.correct_by = None
         self.correct_base: float | None = options.get(CONF_CORRECT_BASE)
         self.correct_frozen: dict[str, float] = dict(options.get(CONF_CORRECT_FROZEN) or {})
+        self.scale_meter: str | None = options.get(CONF_SCALE_METER) or None
+        self.scale: dict[str, float] = {
+            str(k): float(v) for k, v in (options.get(CONF_SCALE) or {}).items()
+        }
+        self.scale_base: dict | None = options.get(CONF_SCALE_BASE)
+        if not self.scale_meter or not self.scale_base:
+            self.scale_meter = self.scale_base = None
+        self._last_scaled_kwh: float | None = None
         self._last_source_kwh: float | None = None
         self._last_energy: dict[str, float] = {}
 
@@ -77,6 +111,35 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         if value is not None:
             self._last_source_kwh = value
         return self._last_source_kwh
+
+    def line_scale(self, address: str, line: int | str) -> float:
+        """The CT scale factor for one line of a meter (1 when not scaled)."""
+        if address != self.scale_meter:
+            return 1.0
+        return self.scale.get(str(line), 1.0)
+
+    def scaled_power(
+        self, address: str, reading: MeterReading, watts: float | None
+    ) -> float | None:
+        """Total watts with each scaled line's share corrected (lines count by magnitude)."""
+        if watts is None or address != self.scale_meter:
+            return watts
+        for line in (1, 2, 3):
+            line_watts = reading.number(f"RMS_Watts_Ln_{line}")
+            if line_watts is not None:
+                watts -= (1.0 - self.line_scale(address, line)) * abs(line_watts)
+        return max(0.0, watts)
+
+    def scaled_energy(
+        self, address: str, reading: MeterReading, kwh: float | None
+    ) -> float | None:
+        """Total kWh rebuilt from the scaled lines (last good value if a register is missing)."""
+        if kwh is None or address != self.scale_meter:
+            return kwh
+        value = scaled_kwh(reading, self.scale, self.scale_base)
+        if value is not None:
+            self._last_scaled_kwh = value
+        return self._last_scaled_kwh
 
     def corrected_power(self, address: str, watts: float | None) -> float | None:
         """Total watts with the source meter's load taken out (target meter only)."""
@@ -95,7 +158,11 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             source = self.source_kwh()
             if source is not None:
                 value -= max(0.0, source - self.correct_base)
-        if address not in self.correct_frozen and address != self.correct_meter:
+        if (
+            address not in self.correct_frozen
+            and address != self.correct_meter
+            and address != self.scale_meter
+        ):
             return kwh
         value = round(max(value, self._last_energy.get(address, value)), 3)
         self._last_energy[address] = value

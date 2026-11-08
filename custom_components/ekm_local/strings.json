@@ -71,12 +71,20 @@
           "scan_interval": "Polling interval",
           "stale_after": "Stale reading threshold",
           "correct_meter": "Correct meter",
-          "correct_by": "Subtract meter"
+          "correct_by": "Subtract meter",
+          "scale_meter": "CT scale meter",
+          "scale_l1": "L1 CT scale",
+          "scale_l2": "L2 CT scale",
+          "scale_l3": "L3 CT scale"
         },
         "data_description": {
           "stale_after": "A meter whose latest reading at the gateway is older than this counts as not communicating (for example, it lost power) and its entities go unavailable. Keep it at least a few polling intervals long.",
           "correct_meter": "Use when this meter's CTs also see another meter's load (for example, a downstream feeder passing through a main CT). Its total power and energy have the other meter's subtracted. Choose None to stop; energy stays continuous either way.",
-          "correct_by": "The meter whose load is being double-counted."
+          "correct_by": "The meter whose load is being double-counted.",
+          "scale_meter": "Use when a CT on this meter reads high or low by a known factor (for example, the wrong CT ratio). Each line's current and power are multiplied by its scale, and total power and energy are rebuilt from the corrected lines. Choose None, or leave every scale at 1, to stop; energy stays continuous either way.",
+          "scale_l1": "Multiplier for line 1. A CT reading 1.8 times too high needs 0.556 (1 divided by 1.8).",
+          "scale_l2": "Multiplier for line 2.",
+          "scale_l3": "Multiplier for line 3."
         }
       }
     },

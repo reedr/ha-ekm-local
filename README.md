@@ -74,3 +74,13 @@ Energy stays continuous (no jump in the Energy dashboard) when you turn the corr
 or off; kWh subtracted while it was on stay subtracted afterwards. Per-line power, current
 and the other values are not corrected. The energy sensor shows `correction_kwh` and
 `corrected_by` attributes while a correction applies.
+
+**CT scale** (v0.4.0): when a CT reads high or low by a known factor (for example, the
+wrong ratio, or a failing CT), set **CT scale meter** to that meter and the line's **CT
+scale** to the multiplier (a CT reading 1.8 times too high needs 0.556). That line's
+**Current** and **Power** are multiplied by the scale, total **Power** is rebuilt from the
+corrected lines (each counted by magnitude, as the meter does), and total **Energy** is
+rebuilt from the meter's per-line kWh registers since the scale took effect. Energy stays
+continuous when you turn the scale on, change it, or turn it off. Per-line energy, reactive
+power and power factor are not scaled. Scaled sensors show a `ct_scale` attribute. CT
+scale and CT correction can be used together, but usually you want one or the other.

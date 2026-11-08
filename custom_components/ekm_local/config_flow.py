@@ -43,18 +43,24 @@ from .const import (
     CONF_CORRECT_METER,
     CONF_LEGACY_PREFIX,
     CONF_METERS,
+    CONF_SCALE,
+    CONF_SCALE_BASE,
+    CONF_SCALE_METER,
     CONF_SCAN_INTERVAL,
     CONF_STALE_AFTER,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STALE_AFTER,
     DOMAIN,
+    MAX_SCALE,
     MAX_SCAN_INTERVAL,
     MAX_STALE_AFTER,
+    MIN_SCALE,
     MIN_SCAN_INTERVAL,
     MIN_STALE_AFTER,
     NO_CORRECTION,
+    SCALE_LINES,
 )
-from .coordinator import EkmConfigEntry
+from .coordinator import EkmConfigEntry, line_kwh, scaled_kwh
 from .sensor import SENSORS
 
 _GATEWAY_SCHEMA = vol.Schema(
@@ -287,20 +293,71 @@ class EkmOptionsFlow(OptionsFlowWithReload):
             result |= {CONF_CORRECT_METER: target, CONF_CORRECT_BY: source, CONF_CORRECT_BASE: base}
         return result
 
+    def _reading(self, address: str | None) -> MeterReading | None:
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        return (coordinator.data or {}).get(address) if coordinator and address else None
+
+    def _scale_options(
+        self, user_input: dict[str, Any], frozen: dict[str, float]
+    ) -> dict[str, Any] | str:
+        """New CT scale options; keeps energy continuous (may add to ``frozen``)."""
+        old = self.config_entry.options
+        target = user_input.get(CONF_SCALE_METER) or NO_CORRECTION
+        factors = {
+            str(line): round(float(user_input.get(f"scale_l{line}", 1.0)), 4)
+            for line in SCALE_LINES
+        }
+        factors = {line: f for line, f in factors.items() if f != 1.0}
+        active = target != NO_CORRECTION and bool(factors)
+        old_target, old_base = old.get(CONF_SCALE_METER), old.get(CONF_SCALE_BASE)
+        old_factors = {str(k): float(v) for k, v in (old.get(CONF_SCALE) or {}).items()}
+        if active and old_base and (target, factors) == (old_target, old_factors):
+            return {CONF_SCALE_METER: target, CONF_SCALE: factors, CONF_SCALE_BASE: old_base}
+        scaled_now = None
+        if old_target and old_base:
+            reading = self._reading(old_target)
+            scaled_now = scaled_kwh(reading, old_factors, old_base) if reading else None
+            raw_now = reading.number("kWh_Tot") if reading else None
+            if scaled_now is None or raw_now is None:
+                return "meter_not_reading"
+            if not active or target != old_target:   # back to the raw register
+                frozen[old_target] = round(frozen.get(old_target, 0.0) + raw_now - scaled_now, 3)
+        if not active:
+            return {}
+        reading = self._reading(target)
+        lines = line_kwh(reading) if reading else None
+        kwh = scaled_now if target == old_target else (reading.number("kWh_Tot") if reading else None)
+        if lines is None or kwh is None:
+            return "meter_not_reading"
+        return {
+            CONF_SCALE_METER: target,
+            CONF_SCALE: factors,
+            CONF_SCALE_BASE: {"kwh": round(kwh, 3), "lines": lines},
+        }
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             correction = self._correction_options(user_input)
+            scale: dict[str, Any] | str = "meter_not_reading"
+            if not isinstance(correction, str):
+                frozen = dict(correction.get(CONF_CORRECT_FROZEN) or {})
+                scale = self._scale_options(user_input, frozen)
+                if frozen:
+                    correction[CONF_CORRECT_FROZEN] = frozen
             if isinstance(correction, str):
                 errors["base"] = correction
+            elif isinstance(scale, str):
+                errors["base"] = scale
             else:
                 return self.async_create_entry(
                     data={
                         CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
                         CONF_STALE_AFTER: int(user_input[CONF_STALE_AFTER]),
                         **correction,
+                        **scale,
                     }
                 )
         seconds = lambda lo, hi: NumberSelector(  # noqa: E731
@@ -317,6 +374,9 @@ class EkmOptionsFlow(OptionsFlowWithReload):
         meter = SelectSelector(
             SelectSelectorConfig(options=choices, mode=SelectSelectorMode.DROPDOWN)
         )
+        factor = NumberSelector(
+            NumberSelectorConfig(min=MIN_SCALE, max=MAX_SCALE, step=0.001, mode=NumberSelectorMode.BOX)
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
@@ -326,6 +386,11 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                         vol.Required(CONF_STALE_AFTER): seconds(MIN_STALE_AFTER, MAX_STALE_AFTER),
                         vol.Optional(CONF_CORRECT_METER): meter,
                         vol.Optional(CONF_CORRECT_BY): meter,
+                        vol.Optional(CONF_SCALE_METER): meter,
+                        **{
+                            vol.Optional(f"scale_l{line}"): factor
+                            for line in SCALE_LINES
+                        },
                     }
                 ),
                 user_input
@@ -334,6 +399,11 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                     CONF_STALE_AFTER: options.get(CONF_STALE_AFTER, DEFAULT_STALE_AFTER),
                     CONF_CORRECT_METER: options.get(CONF_CORRECT_METER) or NO_CORRECTION,
                     CONF_CORRECT_BY: options.get(CONF_CORRECT_BY) or NO_CORRECTION,
+                    CONF_SCALE_METER: options.get(CONF_SCALE_METER) or NO_CORRECTION,
+                    **{
+                        f"scale_l{line}": float((options.get(CONF_SCALE) or {}).get(str(line), 1.0))
+                        for line in SCALE_LINES
+                    },
                 },
             ),
             errors=errors,

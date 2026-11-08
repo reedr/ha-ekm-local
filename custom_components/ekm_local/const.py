@@ -27,6 +27,20 @@ CONF_CORRECT_BASE = "correct_base"
 CONF_CORRECT_FROZEN = "correct_frozen"
 NO_CORRECTION = "none"
 
+# CT scale (v0.4.0): one meter's CT on a line reads high or low by a known factor
+# (for example, a CT with the wrong ratio). That line's current and power are
+# multiplied by its factor, and the meter's total power and energy are rebuilt
+# from the corrected lines. Energy stays continuous: CONF_SCALE_BASE holds the
+# total kWh when the current factors took effect ("kwh") and each line's kWh
+# register then ("lines"); usage since is summed line by line, times the factor.
+# Turning scaling off moves the difference into CONF_CORRECT_FROZEN.
+CONF_SCALE_METER = "scale_meter"
+CONF_SCALE = "scale"
+CONF_SCALE_BASE = "scale_base"
+SCALE_LINES = (1, 2, 3)
+MIN_SCALE = 0.1
+MAX_SCALE = 5.0
+
 DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 600

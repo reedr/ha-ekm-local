@@ -33,6 +33,14 @@ from .entity import EkmEntity, meter_name
 PARALLEL_UPDATES = 0
 
 
+def _scaled_line(key: str) -> str | None:
+    """The line number for per-line current / power sensors (the ones a CT scale multiplies)."""
+    for prefix in ("current_l", "power_l"):
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return None
+
+
 @dataclass(frozen=True, kw_only=True)
 class EkmSensorDescription(SensorEntityDescription):
     """Describes an EKM meter sensor."""
@@ -217,29 +225,45 @@ class EkmSensor(EkmEntity, SensorEntity):
             return None
         value = self.entity_description.value_fn(reading)
         key = self.entity_description.key
+        coordinator = self.coordinator
         if key == "power":
-            return self.coordinator.corrected_power(self._address, value)
+            value = coordinator.scaled_power(self._address, reading, value)
+            return coordinator.corrected_power(self._address, value)
         if key == "energy":
-            return self.coordinator.corrected_energy(self._address, value)
+            value = coordinator.scaled_energy(self._address, reading, value)
+            return coordinator.corrected_energy(self._address, value)
+        line = _scaled_line(key)
+        if line and value is not None:
+            return value * coordinator.line_scale(self._address, line)
         return value
 
     @property
-    def extra_state_attributes(self) -> dict[str, str] | None:
-        """Says when total power / energy are corrected, and by which meter."""
+    def extra_state_attributes(self) -> dict[str, str | float] | None:
+        """Says when values are corrected: by which meter, and by what CT scale."""
         coordinator = self.coordinator
         key = self.entity_description.key
+        attrs: dict[str, str | float] = {}
+        line = _scaled_line(key)
+        if line:
+            if coordinator.line_scale(self._address, line) != 1.0:
+                attrs["ct_scale"] = coordinator.line_scale(self._address, line)
+            return attrs or None
         if key not in ("power", "energy"):
             return None
+        if self._address == coordinator.scale_meter:
+            attrs["ct_scale"] = ", ".join(
+                f"L{n} x{coordinator.scale[n]:g}" for n in sorted(coordinator.scale)
+                if coordinator.scale[n] != 1.0
+            )
         if key == "power" and self._address == coordinator.correct_meter:
-            return {"corrected_by": meter_name(coordinator, coordinator.correct_by)}
+            attrs["corrected_by"] = meter_name(coordinator, coordinator.correct_by)
         if key == "energy" and (
             self._address == coordinator.correct_meter or self._address in coordinator.correct_frozen
         ):
-            attrs = {"correction_kwh": round(self._correction_kwh())}
+            attrs["correction_kwh"] = round(self._correction_kwh())
             if self._address == coordinator.correct_meter:
                 attrs["corrected_by"] = meter_name(coordinator, coordinator.correct_by)
-            return attrs
-        return None
+        return attrs or None
 
     def _correction_kwh(self) -> float:
         coordinator = self.coordinator
