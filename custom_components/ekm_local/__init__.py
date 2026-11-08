@@ -19,6 +19,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EkmConfigEntry) -> bool:
         async_get_clientsession(hass), entry.data[CONF_HOST], entry.data[CONF_API_KEY]
     )
     coordinator = EkmCoordinator(hass, entry, client)
+    await coordinator.async_load_scale_state()
     await coordinator.async_config_entry_first_refresh()
 
     if blocked := async_adopt_entities(hass, entry):

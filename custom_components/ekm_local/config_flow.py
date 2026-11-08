@@ -15,6 +15,7 @@ from homeassistant.core import callback, valid_entity_id
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -44,17 +45,26 @@ from .const import (
     CONF_LEGACY_PREFIX,
     CONF_METERS,
     CONF_SCALE,
+    CONF_SCALE_AUTO,
     CONF_SCALE_BASE,
+    CONF_SCALE_DELAY,
     CONF_SCALE_METER,
+    CONF_SCALE_OFF,
+    CONF_SCALE_ON,
     CONF_SCAN_INTERVAL,
     CONF_STALE_AFTER,
+    DEFAULT_SCALE_DELAY,
+    DEFAULT_SCALE_OFF,
+    DEFAULT_SCALE_ON,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STALE_AFTER,
     DOMAIN,
     MAX_SCALE,
+    MAX_SCALE_DELAY,
     MAX_SCAN_INTERVAL,
     MAX_STALE_AFTER,
     MIN_SCALE,
+    MIN_SCALE_DELAY,
     MIN_SCAN_INTERVAL,
     MIN_STALE_AFTER,
     NO_CORRECTION,
@@ -316,7 +326,10 @@ class EkmOptionsFlow(OptionsFlowWithReload):
         scaled_now = None
         if old_target and old_base:
             reading = self._reading(old_target)
-            scaled_now = scaled_kwh(reading, old_factors, old_base) if reading else None
+            coordinator = getattr(self.config_entry, "runtime_data", None)
+            scaled_now = coordinator.accumulated_kwh() if coordinator else None
+            if scaled_now is None and reading:   # no accumulator yet: the factor was constant
+                scaled_now = scaled_kwh(reading, old_factors, old_base)
             raw_now = reading.number("kWh_Tot") if reading else None
             if scaled_now is None or raw_now is None:
                 return "meter_not_reading"
@@ -351,7 +364,18 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                 errors["base"] = correction
             elif isinstance(scale, str):
                 errors["base"] = scale
+            elif float(user_input.get(CONF_SCALE_OFF, DEFAULT_SCALE_OFF)) >= float(
+                user_input.get(CONF_SCALE_ON, DEFAULT_SCALE_ON)
+            ):
+                errors["base"] = "scale_thresholds_invalid"
             else:
+                if scale:
+                    scale |= {
+                        CONF_SCALE_AUTO: bool(user_input.get(CONF_SCALE_AUTO, False)),
+                        CONF_SCALE_ON: float(user_input.get(CONF_SCALE_ON, DEFAULT_SCALE_ON)),
+                        CONF_SCALE_OFF: float(user_input.get(CONF_SCALE_OFF, DEFAULT_SCALE_OFF)),
+                        CONF_SCALE_DELAY: int(user_input.get(CONF_SCALE_DELAY, DEFAULT_SCALE_DELAY)),
+                    }
                 return self.async_create_entry(
                     data={
                         CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
@@ -377,6 +401,9 @@ class EkmOptionsFlow(OptionsFlowWithReload):
         factor = NumberSelector(
             NumberSelectorConfig(min=MIN_SCALE, max=MAX_SCALE, step=0.001, mode=NumberSelectorMode.BOX)
         )
+        ratio = NumberSelector(
+            NumberSelectorConfig(min=1.0, max=3.0, step=0.01, mode=NumberSelectorMode.BOX)
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
@@ -391,6 +418,10 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                             vol.Optional(f"scale_l{line}"): factor
                             for line in SCALE_LINES
                         },
+                        vol.Optional(CONF_SCALE_AUTO): BooleanSelector(),
+                        vol.Optional(CONF_SCALE_ON): ratio,
+                        vol.Optional(CONF_SCALE_OFF): ratio,
+                        vol.Optional(CONF_SCALE_DELAY): seconds(MIN_SCALE_DELAY, MAX_SCALE_DELAY),
                     }
                 ),
                 user_input
@@ -404,6 +435,10 @@ class EkmOptionsFlow(OptionsFlowWithReload):
                         f"scale_l{line}": float((options.get(CONF_SCALE) or {}).get(str(line), 1.0))
                         for line in SCALE_LINES
                     },
+                    CONF_SCALE_AUTO: bool(options.get(CONF_SCALE_AUTO, False)),
+                    CONF_SCALE_ON: float(options.get(CONF_SCALE_ON, DEFAULT_SCALE_ON)),
+                    CONF_SCALE_OFF: float(options.get(CONF_SCALE_OFF, DEFAULT_SCALE_OFF)),
+                    CONF_SCALE_DELAY: int(options.get(CONF_SCALE_DELAY, DEFAULT_SCALE_DELAY)),
                 },
             ),
             errors=errors,

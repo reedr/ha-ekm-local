@@ -41,6 +41,22 @@ SCALE_LINES = (1, 2, 3)
 MIN_SCALE = 0.1
 MAX_SCALE = 5.0
 
+# CT scale auto-detect (v0.5.0): apply a line's scale only while its CT is misreading, judged by
+# the line's raw current against the other lines' average. The ratio is averaged over
+# CONF_SCALE_DELAY seconds; the scale turns on at >= CONF_SCALE_ON and off at <= CONF_SCALE_OFF.
+# Samples where the other lines carry under MIN_REF_AMPS are skipped. Energy then accumulates
+# each poll's line kWh times the factor in effect, kept in a Store so restarts don't lose it.
+CONF_SCALE_AUTO = "scale_auto"
+CONF_SCALE_ON = "scale_on"
+CONF_SCALE_OFF = "scale_off"
+CONF_SCALE_DELAY = "scale_delay"
+DEFAULT_SCALE_ON = 1.15
+DEFAULT_SCALE_OFF = 1.05
+DEFAULT_SCALE_DELAY = 600
+MIN_SCALE_DELAY = 60
+MAX_SCALE_DELAY = 3600
+MIN_REF_AMPS = 5.0
+
 DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 5
 MAX_SCAN_INTERVAL = 600

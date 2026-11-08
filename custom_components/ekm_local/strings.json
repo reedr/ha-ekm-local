@@ -75,7 +75,11 @@
           "scale_meter": "CT scale meter",
           "scale_l1": "L1 CT scale",
           "scale_l2": "L2 CT scale",
-          "scale_l3": "L3 CT scale"
+          "scale_l3": "L3 CT scale",
+          "scale_auto": "Auto-detect",
+          "scale_on": "Apply above ratio",
+          "scale_off": "Release below ratio",
+          "scale_delay": "Averaging window"
         },
         "data_description": {
           "stale_after": "A meter whose latest reading at the gateway is older than this counts as not communicating (for example, it lost power) and its entities go unavailable. Keep it at least a few polling intervals long.",
@@ -84,13 +88,18 @@
           "scale_meter": "Use when a CT on this meter reads high or low by a known factor (for example, the wrong CT ratio). Each line's current and power are multiplied by its scale, and total power and energy are rebuilt from the corrected lines. Choose None, or leave every scale at 1, to stop; energy stays continuous either way.",
           "scale_l1": "Multiplier for line 1. A CT reading 1.8 times too high needs 0.556 (1 divided by 1.8).",
           "scale_l2": "Multiplier for line 2.",
-          "scale_l3": "Multiplier for line 3."
+          "scale_l3": "Multiplier for line 3.",
+          "scale_auto": "Apply each line's scale only while its CT is misreading: the line's current is compared with the other lines' average, over the averaging window. Off: the scale always applies.",
+          "scale_on": "The scale is applied once the averaged ratio reaches this (for example 1.15 when the line normally runs at 0.7–1.0 of the others).",
+          "scale_off": "The scale is released once the averaged ratio falls to this. Keep it below the apply ratio.",
+          "scale_delay": "How long the ratio is averaged before switching."
         }
       }
     },
     "error": {
       "correct_by_invalid": "Choose a different meter to subtract.",
-      "meter_not_reading": "That meter has no reading yet; try again in a moment."
+      "meter_not_reading": "That meter has no reading yet; try again in a moment.",
+      "scale_thresholds_invalid": "The release ratio must be below the apply ratio."
     }
   },
   "entity": {
@@ -153,6 +162,9 @@
       },
       "gateway_connected": {
         "name": "Connected"
+      },
+      "ct_overread": {
+        "name": "L{line} CT over-read"
       }
     }
   }

@@ -108,3 +108,86 @@ async def test_all_ones_means_off(hass: HomeAssistant, mock_readings):
     await _options(hass, entry, MAIN)
     assert "scale_meter" not in entry.options
     assert _f(hass, "sensor.utility_meter_current_l1") == 45.0
+
+
+async def _auto(hass, entry, l1=0.5, delay=300, on=1.15, off=1.05, auto=True):
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"scan_interval": 60, "stale_after": 90, "correct_meter": "none", "correct_by": "none",
+         "scale_meter": MAIN, "scale_l1": l1, "scale_l2": 1.0, "scale_l3": 1.0,
+         "scale_auto": auto, "scale_on": on, "scale_off": off, "scale_delay": delay},
+    )
+    await hass.async_block_till_done()
+    return result
+
+
+async def _polls(hass, mock_readings, freezer, n, amps_l1, d1, d2):
+    """n polls with line 1 at amps_l1 (line 2 stays 67.5 A); registers end at +d1 / +d2."""
+    for i in range(1, n + 1):
+        payload = fresh_payload()
+        main = payload[MAIN][0]
+        main["Amps_Ln_1"] = amps_l1
+        main["kWh_Ln_1"], main["kWh_Ln_2"] = L1_KWH + d1[0] + (d1[1] - d1[0]) * i / n, L2_KWH + d2[0] + (d2[1] - d2[0]) * i / n
+        main["kWh_Tot"] = main["kWh_Ln_1"] + main["kWh_Ln_2"] - L1_KWH - L2_KWH + MAIN_KWH
+        mock_readings.return_value = parse_readings(payload)
+        freezer.tick(timedelta(seconds=61))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+
+async def test_auto_detect_release_and_apply(hass: HomeAssistant, mock_readings, freezer):
+    entry = await _setup(hass)
+    assert (await _auto(hass, entry))["type"] == "create_entry"
+    overread = "binary_sensor.utility_meter_l1_ct_over_read"
+    assert hass.states.get(overread).state == "on"   # applied until the window says otherwise
+    # normal reading (45 A vs 67.5 A = 0.67): released after a full window; 10 kWh on L1 counted x0.5 until then
+    await _polls(hass, mock_readings, freezer, 5, 45.0, (0, 10), (0, 0))
+    assert hass.states.get(overread).state == "off"
+    assert hass.states.get(overread).attributes["ratio"] == pytest.approx(0.667, abs=0.01)
+    assert _f(hass, "sensor.utility_meter_current_l1") == 45.0
+    assert hass.states.get("sensor.utility_meter_power").attributes["ct_scale"] == "L1 x0.5 (not applied)"
+    released_at = _f(hass, "sensor.utility_meter_energy")
+    # released: L1 kWh count in full
+    await _polls(hass, mock_readings, freezer, 1, 45.0, (10, 14), (0, 0))
+    assert _f(hass, "sensor.utility_meter_energy") == pytest.approx(released_at + 4)
+    # CT starts reading high (120 A = 1.78): applied again after a full window
+    await _polls(hass, mock_readings, freezer, 5, 120.0, (14, 24), (0, 0))
+    assert hass.states.get(overread).state == "on"
+    assert _f(hass, "sensor.utility_meter_current_l1") == 60.0
+    applied_at = _f(hass, "sensor.utility_meter_energy")
+    await _polls(hass, mock_readings, freezer, 1, 120.0, (24, 30), (0, 0))
+    assert _f(hass, "sensor.utility_meter_energy") == pytest.approx(applied_at + 3)
+
+    # restart: state and energy carry over
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(overread).state == "on"
+    assert _f(hass, "sensor.utility_meter_energy") == pytest.approx(applied_at + 3)
+
+
+async def test_auto_low_load_skipped(hass: HomeAssistant, mock_readings, freezer, payload):
+    """Under 5 A on the other line, the ratio isn't judged (state holds)."""
+    entry = await _setup(hass)
+    await _auto(hass, entry)
+    for _ in range(6):
+        p = fresh_payload()
+        p[MAIN][0]["Amps_Ln_1"], p[MAIN][0]["Amps_Ln_2"] = 1.0, 3.0
+        mock_readings.return_value = parse_readings(p)
+        freezer.tick(timedelta(seconds=61))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.utility_meter_l1_ct_over_read").state == "on"
+
+
+async def test_auto_thresholds_validated(hass: HomeAssistant, mock_readings):
+    entry = await _setup(hass)
+    result = await _auto(hass, entry, on=1.1, off=1.2)
+    assert result["errors"] == {"base": "scale_thresholds_invalid"}
+
+
+async def test_fixed_scale_has_overread_sensor_on(hass: HomeAssistant, mock_readings):
+    entry = await _setup(hass)
+    await _options(hass, entry, MAIN, l1=0.5)
+    state = hass.states.get("binary_sensor.utility_meter_l1_ct_over_read")
+    assert state.state == "on" and state.attributes["auto_detect"] is False

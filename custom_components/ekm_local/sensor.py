@@ -244,16 +244,19 @@ class EkmSensor(EkmEntity, SensorEntity):
         key = self.entity_description.key
         attrs: dict[str, str | float] = {}
         line = _scaled_line(key)
+        scaled = self._address == coordinator.scale_meter
         if line:
-            if coordinator.line_scale(self._address, line) != 1.0:
-                attrs["ct_scale"] = coordinator.line_scale(self._address, line)
+            if scaled and line in coordinator.scale:
+                attrs["ct_scale"] = coordinator.scale[line]
+                attrs["ct_scale_applied"] = coordinator.scale_active.get(line, True)
             return attrs or None
         if key not in ("power", "energy"):
             return None
-        if self._address == coordinator.scale_meter:
+        if scaled:
             attrs["ct_scale"] = ", ".join(
-                f"L{n} x{coordinator.scale[n]:g}" for n in sorted(coordinator.scale)
-                if coordinator.scale[n] != 1.0
+                f"L{n} x{coordinator.scale[n]:g}"
+                + ("" if coordinator.scale_active.get(n, True) else " (not applied)")
+                for n in sorted(coordinator.scale)
             )
         if key == "power" and self._address == coordinator.correct_meter:
             attrs["corrected_by"] = meter_name(coordinator, coordinator.correct_by)

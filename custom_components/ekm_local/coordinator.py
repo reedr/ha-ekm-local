@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -17,13 +19,21 @@ from .const import (
     CONF_CORRECT_FROZEN,
     CONF_CORRECT_METER,
     CONF_SCALE,
+    CONF_SCALE_AUTO,
     CONF_SCALE_BASE,
+    CONF_SCALE_DELAY,
     CONF_SCALE_METER,
+    CONF_SCALE_OFF,
+    CONF_SCALE_ON,
     CONF_SCAN_INTERVAL,
     CONF_STALE_AFTER,
+    DEFAULT_SCALE_DELAY,
+    DEFAULT_SCALE_OFF,
+    DEFAULT_SCALE_ON,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STALE_AFTER,
     DOMAIN,
+    MIN_REF_AMPS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,15 +104,97 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         self.scale_base: dict | None = options.get(CONF_SCALE_BASE)
         if not self.scale_meter or not self.scale_base:
             self.scale_meter = self.scale_base = None
-        self._last_scaled_kwh: float | None = None
+        self.scale_auto: bool = bool(options.get(CONF_SCALE_AUTO))
+        self.scale_on: float = float(options.get(CONF_SCALE_ON, DEFAULT_SCALE_ON))
+        self.scale_off: float = float(options.get(CONF_SCALE_OFF, DEFAULT_SCALE_OFF))
+        self.scale_delay: float = float(options.get(CONF_SCALE_DELAY, DEFAULT_SCALE_DELAY))
+        # per scaled line: applied now? (auto-detect; always True without it), averaged ratio
+        self.scale_active: dict[str, bool] = {line: True for line in self.scale}
+        self.scale_ratio: dict[str, float] = {}
+        self._samples: dict[str, deque] = {}
+        # energy accumulator {"base": options base it started from, "kwh", "lines": {line: kWh register}}
+        self._acc: dict | None = None
+        self._store: Store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.scale")
         self._last_source_kwh: float | None = None
         self._last_energy: dict[str, float] = {}
 
+    async def async_load_scale_state(self) -> None:
+        """Restore the energy accumulator and auto-detect state saved before a restart."""
+        if not self.scale_meter:
+            return
+        saved = await self._store.async_load() or {}
+        if saved.get("meter") == self.scale_meter:
+            for line, on in (saved.get("active") or {}).items():
+                if line in self.scale_active:
+                    self.scale_active[line] = bool(on)
+            acc = saved.get("acc")
+            if acc and acc.get("base") == self.scale_base:
+                self._acc = acc
+
+    def _save_scale_state(self) -> None:
+        self._store.async_delay_save(
+            lambda: {"meter": self.scale_meter, "active": self.scale_active, "acc": self._acc}, 30
+        )
+
     async def _async_update_data(self) -> dict[str, MeterReading]:
         try:
-            return await self.client.async_get_readings()
+            readings = await self.client.async_get_readings()
         except EkmError as err:
             raise UpdateFailed(str(err)) from err
+        if self.scale_meter and (reading := readings.get(self.scale_meter)) is not None:
+            self._accumulate(reading)   # with the factors in effect since the last poll
+            if self.scale_auto:
+                self._detect(reading, dt_util.utcnow().timestamp())
+            self._save_scale_state()
+        return readings
+
+    def _accumulate(self, reading: MeterReading) -> None:
+        """Add each line's kWh since the last poll, times the factor in effect."""
+        lines = line_kwh(reading)
+        if lines is None:
+            return
+        if self._acc is None:
+            # first poll after the scale was set (or after upgrading from a constant-factor
+            # version): the base formula is exact because the factor was constant until now
+            kwh = scaled_kwh(reading, self.scale, self.scale_base)
+            if kwh is None:
+                return
+            self._acc = {"base": self.scale_base, "kwh": kwh, "lines": lines}
+            return
+        total = self._acc["kwh"]
+        for line, now in lines.items():
+            before = self._acc["lines"].get(line, now)
+            total += self.line_scale(self.scale_meter, line) * max(0.0, now - before)
+        self._acc = {"base": self.scale_base, "kwh": round(total, 4), "lines": lines}
+
+    def _detect(self, reading: MeterReading, now: float) -> None:
+        """Auto-detect: a line's scale applies while its raw current runs high against the others."""
+        amps = {
+            str(line): abs(reading.number(f"Amps_Ln_{line}") or 0.0) for line in (1, 2, 3)
+        }
+        for line in self.scale:
+            others = [a for n, a in amps.items() if n != line and a > 1.0]
+            if not others or sum(others) / len(others) < MIN_REF_AMPS:
+                continue
+            samples = self._samples.setdefault(line, deque())
+            samples.append((now, amps.get(line, 0.0) / (sum(others) / len(others))))
+            while samples and now - samples[0][0] > self.scale_delay:
+                samples.popleft()
+            if now - samples[0][0] < 0.8 * self.scale_delay:
+                continue   # not a full window yet
+            mean = sum(r for _, r in samples) / len(samples)
+            self.scale_ratio[line] = round(mean, 3)
+            active = self.scale_active.get(line, True)
+            if not active and mean >= self.scale_on:
+                self.scale_active[line] = True
+                _LOGGER.info("CT scale for line %s applied (ratio %.2f)", line, mean)
+            elif active and mean <= self.scale_off:
+                self.scale_active[line] = False
+                _LOGGER.info("CT scale for line %s released (ratio %.2f)", line, mean)
+
+    def accumulated_kwh(self) -> float | None:
+        """The scaled meter's corrected total kWh so far (None before the first reading)."""
+        return self._acc["kwh"] if self._acc else None
 
     def source_kwh(self) -> float | None:
         """The correction source meter's total kWh (last good value if missing now)."""
@@ -113,8 +205,8 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         return self._last_source_kwh
 
     def line_scale(self, address: str, line: int | str) -> float:
-        """The CT scale factor for one line of a meter (1 when not scaled)."""
-        if address != self.scale_meter:
+        """The CT scale factor in effect for one line (1 when not scaled or auto-released)."""
+        if address != self.scale_meter or not self.scale_active.get(str(line), True):
             return 1.0
         return self.scale.get(str(line), 1.0)
 
@@ -136,10 +228,7 @@ class EkmCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         """Total kWh rebuilt from the scaled lines (last good value if a register is missing)."""
         if kwh is None or address != self.scale_meter:
             return kwh
-        value = scaled_kwh(reading, self.scale, self.scale_base)
-        if value is not None:
-            self._last_scaled_kwh = value
-        return self._last_scaled_kwh
+        return self.accumulated_kwh()
 
     def corrected_power(self, address: str, watts: float | None) -> float | None:
         """Total watts with the source meter's load taken out (target meter only)."""

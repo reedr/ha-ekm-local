@@ -84,3 +84,12 @@ rebuilt from the meter's per-line kWh registers since the scale took effect. Ene
 continuous when you turn the scale on, change it, or turn it off. Per-line energy, reactive
 power and power factor are not scaled. Scaled sensors show a `ct_scale` attribute. CT
 scale and CT correction can be used together, but usually you want one or the other.
+
+**CT scale auto-detect** (v0.5.0): turn on **Auto-detect** to apply a line's scale only while
+its CT is misreading. The line's raw current is compared with the other lines' average,
+averaged over the **averaging window** (default 10 minutes); the scale is applied once that
+ratio reaches **Apply above ratio** (default 1.15) and released once it falls to **Release
+below ratio** (default 1.05). Samples where the other lines carry under 5 A are skipped. A
+**L*n* CT over-read** binary sensor per scaled line is on while the scale applies (with the
+averaged `ratio` as an attribute). Energy accumulates each poll's line kWh times the factor in
+effect, and is saved so it survives restarts.
